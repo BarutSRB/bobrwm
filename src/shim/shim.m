@@ -472,6 +472,25 @@ bool bw_ax_focus_window(int32_t pid, uint32_t wid) {
     return true;
 }
 
+bool bw_ax_get_window_min_size(int32_t pid, uint32_t wid,
+                               double *w_out, double *h_out) {
+    *w_out = 0; *h_out = 0;
+    AXUIElementRef win = find_ax_window((pid_t)pid, wid);
+    if (!win) return false;
+    CFTypeRef val = NULL;
+    AXError err = AXUIElementCopyAttributeValue(
+        win, CFSTR("AXMinSize"), &val);
+    CFRelease(win);
+    if (err != kAXErrorSuccess || !val) return false;
+    CGSize size = CGSizeZero;
+    bool ok = AXValueGetValue((AXValueRef)val, kAXValueTypeCGSize, &size);
+    CFRelease(val);
+    if (!ok) return false;
+    *w_out = size.width;
+    *h_out = size.height;
+    return true;
+}
+
 bool bw_should_manage_window(int32_t pid, uint32_t wid) {
     NSRunningApplication *app =
         [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
@@ -503,8 +522,34 @@ bool bw_should_manage_window(int32_t pid, uint32_t wid) {
     bool is_standard = !subrole || CFEqual(subrole, kAXStandardWindowSubrole);
     if (subrole) CFRelease(subrole);
 
+    if (!is_standard) {
+        CFRelease(win);
+        return false;
+    }
+
+    // Fullscreen button check: helper/sub-windows from Electron/Chromium apps
+    // (Discord splash, GPU process, etc.) have no fullscreen button or have it
+    // disabled. Rejecting them prevents the app_has_tiled guard from firing
+    // and blocking the real main window from being tiled.
+    AXUIElementRef fullscreen_btn = NULL;
+    AXError fb_err = AXUIElementCopyAttributeValue(
+        win, kAXFullScreenButtonAttribute, (CFTypeRef *)&fullscreen_btn);
     CFRelease(win);
-    return is_standard;
+
+    if (fb_err != kAXErrorSuccess || !fullscreen_btn) {
+        // AX not ready or app doesn't expose fullscreen button → accept
+        // tentatively, same as the existing role/subrole fallback behaviour.
+        return true;
+    }
+
+    // Button element exists — check whether it's actually enabled.
+    CFBooleanRef enabled = NULL;
+    AXUIElementCopyAttributeValue(fullscreen_btn, kAXEnabledAttribute,
+                                   (CFTypeRef *)&enabled);
+    bool is_enabled = (enabled == kCFBooleanTrue);
+    if (enabled) CFRelease(enabled);
+    CFRelease(fullscreen_btn);
+    return is_enabled;
 }
 
 uint32_t bw_ax_get_focused_window(int32_t pid) {

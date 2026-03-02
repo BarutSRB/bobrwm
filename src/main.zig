@@ -1068,6 +1068,10 @@ fn discoverWindows() void {
         const display_id = displayIdForFrame(frame);
         const target_ws = resolveWorkspace(info.pid, display_id);
 
+        var min_w: f64 = 0;
+        var min_h: f64 = 0;
+        _ = shim.bw_ax_get_window_min_size(info.pid, info.wid, &min_w, &min_h);
+
         const win = window_mod.Window{
             .wid = info.wid,
             .pid = info.pid,
@@ -1077,6 +1081,8 @@ fn discoverWindows() void {
             .mode = .tiled,
             .workspace_id = target_ws.id,
             .display_id = display_id,
+            .min_width = min_w,
+            .min_height = min_h,
         };
 
         g_store.put(win) catch continue;
@@ -1155,6 +1161,10 @@ fn addNewWindow(pid: i32, wid: u32) void {
     }
     const ws = resolveWorkspace(pid, display_id);
 
+    var min_w: f64 = 0;
+    var min_h: f64 = 0;
+    _ = shim.bw_ax_get_window_min_size(pid, wid, &min_w, &min_h);
+
     const win = window_mod.Window{
         .wid = wid,
         .pid = pid,
@@ -1164,6 +1174,8 @@ fn addNewWindow(pid: i32, wid: u32) void {
         .mode = .tiled,
         .workspace_id = ws.id,
         .display_id = display_id,
+        .min_width = min_w,
+        .min_height = min_h,
     };
 
     g_store.put(win) catch return;
@@ -1597,13 +1609,18 @@ fn retileDisplay(display_id: u32) void {
         // Fullscreen windows fill the outer-gap-inset frame, skipping BSP splits and inner gaps
         const target_frame = if (win.is_fullscreen) frame else entry.frame;
 
+        // Clamp tile dimensions to the window's declared AXMinSize so macOS
+        // does not silently ignore the resize and desync the layout.
+        const effective_w = @max(target_frame.width, win.min_width);
+        const effective_h = @max(target_frame.height, win.min_height);
+
         _ = shim.bw_ax_set_window_frame(
             win.pid,
             entry.wid,
             target_frame.x,
             target_frame.y,
-            target_frame.width,
-            target_frame.height,
+            effective_w,
+            effective_h,
         );
         // Two-pass for fullscreen to handle macOS size clamping
         if (win.is_fullscreen) {
@@ -1612,12 +1629,17 @@ fn retileDisplay(display_id: u32) void {
                 entry.wid,
                 target_frame.x,
                 target_frame.y,
-                target_frame.width,
-                target_frame.height,
+                effective_w,
+                effective_h,
             );
         }
         var updated = win;
-        updated.frame = target_frame;
+        updated.frame = .{
+            .x = target_frame.x,
+            .y = target_frame.y,
+            .width = effective_w,
+            .height = effective_h,
+        };
         g_store.put(updated) catch {};
 
         // If this is a tab group leader, apply the same frame to all members

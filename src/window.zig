@@ -17,6 +17,8 @@ pub const Window = struct {
     mode: WindowMode = .tiled,
     workspace_id: u8,
     display_id: u32,
+    min_width: f64 = 0,
+    min_height: f64 = 0,
 
     pub const Frame = struct {
         x: f64,

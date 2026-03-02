@@ -118,6 +118,12 @@ uint32_t bw_ax_get_focused_window(int32_t pid);
 /// Check if a window should be managed (regular app, standard AX window role).
 bool bw_should_manage_window(int32_t pid, uint32_t wid);
 
+/// Read AXMinSize for a window. Returns false when unavailable (AX not ready,
+/// or the app does not advertise a minimum size). w_out and h_out are set to 0
+/// on failure.
+bool bw_ax_get_window_min_size(int32_t pid, uint32_t wid,
+                               double *w_out, double *h_out);
+
 /// Check if a window is currently on screen (CGWindowList cross-check).
 /// Background tabs in native macOS tab groups are NOT on screen.
 bool bw_is_window_on_screen(uint32_t wid);
